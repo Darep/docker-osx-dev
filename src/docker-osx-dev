@@ -33,6 +33,7 @@ readonly HOSTS_FILE="/etc/hosts"
 readonly SYNC_COMMAND="sync"
 readonly WATCH_ONLY_COMMAND="watch-only"
 readonly SYNC_ONLY_COMMAND="sync-only"
+readonly PULL_COMMAND="pull"
 readonly INSTALL_COMMAND="install"
 readonly TEST_COMMAND="test_mode"
 readonly DEFAULT_COMMAND="$SYNC_COMMAND"
@@ -817,7 +818,12 @@ function do_rsync {
 
     local readonly rsh_flag="--rsh=\"ssh -i $DOCKER_HOST_SSH_KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null\""
 
-    local readonly rsync_cmd="rsync $RSYNC_FLAGS $include_flags $exclude_flags $rsh_flag $path_to_sync $DOCKER_HOST_SSH_URL:$parent_folder 2>&1 | grep -v \"^Warning: Permanently added\""
+    local rsync_cmd="rsync $RSYNC_FLAGS $include_flags $exclude_flags $rsh_flag $path_to_sync $DOCKER_HOST_SSH_URL:$parent_folder 2>&1 | grep -v \"^Warning: Permanently added\""
+
+    if [[ "$PULL_COMMAND" == "$COMMAND" ]]; then
+      rsync_cmd="rsync $RSYNC_FLAGS $include_flags $exclude_flags $rsh_flag $DOCKER_HOST_SSH_URL:$path_to_sync $parent_folder 2>&1 | grep -v \"^Warning: Permanently added\""
+    fi
+
     log_debug "$rsync_cmd"
 
     eval "$rsync_cmd" 2>&1 | log_info
@@ -955,6 +961,7 @@ function instructions {
   echo -e "  $WATCH_ONLY_COMMAND\tWatch the file system for changes, without syncing first."
   echo -e "  $SYNC_ONLY_COMMAND\tSync the file system and exit, without watching afterwords."
   echo -e "  $INSTALL_COMMAND\tInstall docker-osx-dev and all of its dependencies."
+  echo -e "  $PULL_COMMAND\tPulls files back from docker-machine."
   echo -e
   echo -e "Options:"
   echo -e "  -m, --machine-name name\t\tWhen suplied syncs with the given docker machine host"
@@ -1187,6 +1194,21 @@ function sync {
 }
 
 #
+# Pulls results from remote docker, i.e. the result of a build.
+#
+function pull {
+  local readonly paths_to_sync=($PATHS_TO_SYNC)
+  
+  log_info "Starting docker-osx-dev pull"
+  init_docker_host "false"
+  COMMAND="$PULL_COMMAND"
+  
+  log_debug "Starting sync paths: $paths_to_sync"
+  do_sync "${paths_to_sync[@]}"
+  log_info "pull sync done"
+}
+
+#
 # Usage: install [SKIP_DEPENDENCIES] [ONLY_DEPENDENCIES] [REMOVE_SHARED_FOLDERS]
 #
 # Installs the docker-osx-dev script, all of its dependencies, and configures
@@ -1274,6 +1296,9 @@ function handle_command {
       "$WATCH_ONLY_COMMAND")
         cmd="$WATCH_ONLY_COMMAND"
         ;;
+      "$PULL_COMMAND")
+        cmd="$PULL_COMMAND"
+        ;;
       "$INSTALL_COMMAND")
         cmd="$INSTALL_COMMAND"
         ;;
@@ -1341,7 +1366,7 @@ function handle_command {
   assert_mutually_exclusive "--only-dependencies and --skip-dependencies are mutually exclusive" "$only_dependencies" "$skip_dependencies"
 
   case "$cmd" in
-    "$SYNC_COMMAND" | "$SYNC_ONLY_COMMAND" | "$WATCH_ONLY_COMMAND")
+    "$SYNC_COMMAND" | "$SYNC_ONLY_COMMAND" | "$WATCH_ONLY_COMMAND" | "$PULL_COMMAND")
       configure_log_level "$log_level"
       configure_paths_to_sync "$docker_compose_file" "${paths_to_sync[@]}"
       configure_excludes "$ignore_file" "${excludes[@]}"
@@ -1356,6 +1381,9 @@ function handle_command {
         ;;
       "$WATCH_ONLY_COMMAND")
         watch
+        ;;
+      "$PULL_COMMAND")
+        pull
         ;;
       esac
       ;;
